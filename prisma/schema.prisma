@@ -1,0 +1,83 @@
+// Prisma schema for Community Issue Tracker v2.0
+// AI-powered civic reporting platform with AI image authenticity detection
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Issues reported by citizens ────────────────────────────────────
+model Issue {
+  id              String   @id @default(cuid())
+  issueId         String   @unique // human-readable ID like ISS-2024-0042
+  type            String   // pothole | garbage | light | water | other
+  status          String   @default("pending") // pending | in_progress | resolved | rejected
+  photoUrl        String   // Cloudinary URL or local /uploads path
+  description     String?
+  lat             Float
+  lng             Float
+  address         String?
+  ward            String   @default("Ward-12")
+  aiResult        String   // real | ai_generated | uncertain
+  aiConfidence    Float    // 0.0 - 1.0
+  aiApiUsed       String   @default("vlm-zai")
+  aiCheckedAt     DateTime @default(now())
+  resolutionNote  String?
+  assignedTo      String?  // admin user id
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  resolvedAt      DateTime?
+
+  // status timeline events
+  timeline        IssueTimeline[]
+
+  @@index([status])
+  @@index([ward])
+  @@index([type])
+}
+
+// ─── Status history for each issue ──────────────────────────────────
+model IssueTimeline {
+  id          String   @id @default(cuid())
+  issueId     String
+  issue       Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  fromStatus  String?
+  toStatus    String
+  note        String?
+  actor       String   @default("system") // system | admin | super_admin
+  createdAt   DateTime @default(now())
+
+  @@index([issueId])
+}
+
+// ─── Municipality officers + super admins ───────────────────────────
+model AdminUser {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String   // simple SHA-256 hash for MVP demo (NOT for production)
+  role         String   @default("admin") // admin | super_admin
+  ward         String?  // assigned ward for officers
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  lastLogin    DateTime?
+}
+
+// ─── Audit log of every AI detection call ───────────────────────────
+model AIDetectionLog {
+  id           String   @id @default(cuid())
+  imageUrl     String
+  result       String   // real | ai_generated | uncertain
+  confidence   Float
+  apiUsed      String   @default("vlm-zai")
+  reasoning    String?  // model explanation
+  issueId      String?  // null if rejected (no issue created)
+  createdAt    DateTime @default(now())
+
+  @@index([result])
+  @@index([createdAt])
+}
