@@ -1,0 +1,24 @@
+{
+  "name": "community-issue-tracker-prd",
+  "version": "2.0.0",
+  "description": "Generates the Product Requirements Document (PRD) Word file for the Community Issue Tracker — an AI-powered civic reporting platform with AI image authenticity detection.",
+  "main": "generate-prd.js",
+  "scripts": {
+    "start": "node generate-prd.js",
+    "generate": "node generate-prd.js"
+  },
+  "keywords": [
+    "docx",
+    "prd",
+    "community",
+    "civic",
+    "ai",
+    "image-authenticity",
+    "hackathon"
+  ],
+  "author": "Community Issue Tracker Team",
+  "license": "MIT",
+  "dependencies": {
+    "docx": "^8.5.0"
+  }
+}

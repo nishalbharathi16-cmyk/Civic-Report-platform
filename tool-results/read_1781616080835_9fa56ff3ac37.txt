@@ -1,0 +1,664 @@
+     1→const {
+     2→  Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+     3→  HeadingLevel, AlignmentType, BorderStyle, WidthType, ShadingType,
+     4→  LevelFormat, VerticalAlign, PageBreak
+     5→} = require('docx');
+     6→const fs = require('fs');
+     7→
+     8→// ─── Color Palette ───────────────────────────────────────────────
+     9→const C = {
+    10→  primary: "1565C0",     // deep blue
+    11→  secondary: "0D47A1",
+    12→  accent: "1976D2",
+    13→  light: "E3F2FD",
+    14→  mid: "BBDEFB",
+    15→  dark: "0A237E",
+    16→  green: "2E7D32",
+    17→  greenLight: "E8F5E9",
+    18→  orange: "E65100",
+    19→  orangeLight: "FFF3E0",
+    20→  red: "C62828",
+    21→  redLight: "FFEBEE",
+    22→  purple: "6A1B9A",
+    23→  purpleLight: "F3E5F5",
+    24→  grey: "546E7A",
+    25→  greyLight: "ECEFF1",
+    26→  white: "FFFFFF",
+    27→  black: "1A1A2E",
+    28→  tableAlt: "F0F4FF",
+    29→};
+    30→
+    31→const bdr = (color = C.primary) => ({ style: BorderStyle.SINGLE, size: 1, color });
+    32→const borders = (color = "CCCCCC") => ({ top: bdr(color), bottom: bdr(color), left: bdr(color), right: bdr(color) });
+    33→
+    34→// ─── Helpers ─────────────────────────────────────────────────────
+    35→const h1 = (text) => new Paragraph({
+    36→  spacing: { before: 480, after: 160 },
+    37→  children: [
+    38→    new TextRun({ text: "▌ ", bold: true, size: 34, color: C.accent, font: "Arial" }),
+    39→    new TextRun({ text, bold: true, size: 34, color: C.primary, font: "Arial" })
+    40→  ]
+    41→});
+    42→
+    43→const h2 = (text) => new Paragraph({
+    44→  spacing: { before: 280, after: 100 },
+    45→  children: [new TextRun({ text, bold: true, size: 26, color: C.accent, font: "Arial" })]
+    46→});
+    47→
+    48→const h3 = (text) => new Paragraph({
+    49→  spacing: { before: 180, after: 80 },
+    50→  children: [new TextRun({ text, bold: true, size: 22, color: C.grey, font: "Arial" })]
+    51→});
+    52→
+    53→const para = (text, opts = {}) => new Paragraph({
+    54→  spacing: { before: 60, after: 80 },
+    55→  children: [new TextRun({ text, size: 21, font: "Arial", color: C.black, ...opts })]
+    56→});
+    57→
+    58→const bullet = (text, color = C.primary) => new Paragraph({
+    59→  numbering: { reference: "bullets", level: 0 },
+    60→  spacing: { before: 50, after: 50 },
+    61→  children: [new TextRun({ text, size: 21, font: "Arial", color: C.black })]
+    62→});
+    63→
+    64→const numbered = (text) => new Paragraph({
+    65→  numbering: { reference: "numbers", level: 0 },
+    66→  spacing: { before: 50, after: 50 },
+    67→  children: [new TextRun({ text, size: 21, font: "Arial", color: C.black })]
+    68→});
+    69→
+    70→const divider = () => new Paragraph({
+    71→  spacing: { before: 160, after: 160 },
+    72→  border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: C.mid, space: 1 } },
+    73→  children: []
+    74→});
+    75→
+    76→const gap = (n = 80) => new Paragraph({ spacing: { before: n, after: 0 }, children: [] });
+    77→
+    78→const badge = (text, fillColor, textColor = "FFFFFF") => new Paragraph({
+    79→  spacing: { before: 0, after: 0 },
+    80→  children: [new TextRun({ text: ` ${text} `, size: 18, bold: true, font: "Arial", color: textColor,
+    81→    shading: { type: ShadingType.CLEAR, fill: fillColor } })]
+    82→});
+    83→
+    84→// ─── Table Builder ───────────────────────────────────────────────
+    85→function tbl(headers, rows, colWidths, headerFill = C.primary) {
+    86→  const totalWidth = colWidths.reduce((a, b) => a + b, 0);
+    87→  const hdrBdr = borders(C.primary);
+    88→  const cellBdr = borders("D0D8F0");
+    89→
+    90→  return new Table({
+    91→    width: { size: totalWidth, type: WidthType.DXA },
+    92→    columnWidths: colWidths,
+    93→    rows: [
+    94→      new TableRow({
+    95→        tableHeader: true,
+    96→        children: headers.map((h, i) => new TableCell({
+    97→          borders: hdrBdr,
+    98→          width: { size: colWidths[i], type: WidthType.DXA },
+    99→          shading: { fill: headerFill, type: ShadingType.CLEAR },
+   100→          margins: { top: 100, bottom: 100, left: 160, right: 160 },
+   101→          verticalAlign: VerticalAlign.CENTER,
+   102→          children: [new Paragraph({ alignment: AlignmentType.CENTER,
+   103→            children: [new TextRun({ text: h, bold: true, size: 19, color: "FFFFFF", font: "Arial" })] })]
+   104→        }))
+   105→      }),
+   106→      ...rows.map((row, ri) => new TableRow({
+   107→        children: row.map((cell, ci) => new TableCell({
+   108→          borders: cellBdr,
+   109→          width: { size: colWidths[ci], type: WidthType.DXA },
+   110→          shading: { fill: ri % 2 === 0 ? C.tableAlt : C.white, type: ShadingType.CLEAR },
+   111→          margins: { top: 90, bottom: 90, left: 160, right: 160 },
+   112→          children: [new Paragraph({
+   113→            children: [new TextRun({ text: cell, size: 19, font: "Arial", color: C.black })]
+   114→          })]
+   115→        }))
+   116→      }))
+   117→    ]
+   118→  });
+   119→}
+   120→
+   121→// ─── Section title box ───────────────────────────────────────────
+   122→const sectionBox = (emoji, title, subtitle) => new Paragraph({
+   123→  spacing: { before: 80, after: 80 },
+   124→  shading: { fill: C.light, type: ShadingType.CLEAR },
+   125→  border: { left: { style: BorderStyle.SINGLE, size: 16, color: C.primary, space: 8 } },
+   126→  children: [
+   127→    new TextRun({ text: `${emoji}  ${title}`, bold: true, size: 28, color: C.primary, font: "Arial" }),
+   128→    ...(subtitle ? [new TextRun({ text: `  —  ${subtitle}`, size: 20, color: C.grey, italics: true, font: "Arial" })] : [])
+   129→  ]
+   130→});
+   131→
+   132→// ─── CODE BLOCK ─────────────────────────────────────────────────
+   133→const code = (text) => new Paragraph({
+   134→  spacing: { before: 60, after: 60 },
+   135→  shading: { fill: "F5F5F5", type: ShadingType.CLEAR },
+   136→  children: [new TextRun({ text, font: "Courier New", size: 17, color: "333333" })]
+   137→});
+   138→
+   139→// ════════════════════════════════════════════════════════════════
+   140→//  DOCUMENT
+   141→// ════════════════════════════════════════════════════════════════
+   142→const doc = new Document({
+   143→  numbering: {
+   144→    config: [
+   145→      { reference: "bullets", levels: [{ level: 0, format: LevelFormat.BULLET, text: "•",
+   146→          alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] },
+   147→      { reference: "numbers", levels: [{ level: 0, format: LevelFormat.DECIMAL, text: "%1.",
+   148→          alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] },
+   149→      { reference: "alpha", levels: [{ level: 0, format: LevelFormat.UPPER_LETTER, text: "%1.",
+   150→          alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }] },
+   151→    ]
+   152→  },
+   153→  styles: {
+   154→    default: { document: { run: { font: "Arial", size: 21 } } },
+   155→    paragraphStyles: [
+   156→      { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true,
+   157→        run: { size: 34, bold: true, font: "Arial", color: C.primary },
+   158→        paragraph: { spacing: { before: 480, after: 160 }, outlineLevel: 0 } },
+   159→      { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true,
+   160→        run: { size: 26, bold: true, font: "Arial", color: C.accent },
+   161→        paragraph: { spacing: { before: 280, after: 100 }, outlineLevel: 1 } },
+   162→    ]
+   163→  },
+   164→  sections: [{
+   165→    properties: {
+   166→      page: {
+   167→        size: { width: 12240, height: 15840 },
+   168→        margin: { top: 1080, right: 1260, bottom: 1080, left: 1260 }
+   169→      }
+   170→    },
+   171→    children: [
+   172→
+   173→      // ══════════════════════════════════════════════
+   174→      //  COVER PAGE
+   175→      // ══════════════════════════════════════════════
+   176→      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 600, after: 100 },
+   177→        children: [new TextRun({ text: "🏘️", size: 96, font: "Arial" })] }),
+   178→
+   179→      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 80 },
+   180→        children: [new TextRun({ text: "Community Issue Tracker", bold: true, size: 64, color: C.primary, font: "Arial" })] }),
+   181→
+   182→      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 60 },
+   183→        children: [new TextRun({ text: "AI-Powered Civic Reporting Platform", size: 28, color: C.grey, italics: true, font: "Arial" })] }),
+   184→
+   185→      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 0, after: 40 },
+   186→        children: [new TextRun({ text: "with AI Image Authenticity Detection", size: 22, color: C.accent, font: "Arial" })] }),
+   187→
+   188→      gap(60),
+   189→
+   190→      new Paragraph({
+   191→        alignment: AlignmentType.CENTER, spacing: { before: 40, after: 40 },
+   192→        shading: { fill: C.light, type: ShadingType.CLEAR },
+   193→        children: [new TextRun({ text: "Product Requirements Document  •  Version 2.0  •  Hackathon Build  •  12-Hour Sprint",
+   194→          size: 20, color: C.grey, font: "Arial" })]
+   195→      }),
+   196→
+   197→      gap(120),
+   198→
+   199→      tbl(
+   200→        ["Field", "Details"],
+   201→        [
+   202→          ["Product Name", "Community Issue Tracker v2.0"],
+   203→          ["Build Method", "AI Agent (v0.dev / Bolt.new) + Manual Code"],
+   204→          ["Version", "MVP v2.0"],
+   205→          ["Duration", "12-Hour Hackathon"],
+   206→          ["Team Size", "3–4 Members"],
+   207→          ["Tech Stack", "React + Node.js + Firebase + Google Maps + AI APIs"],
+   208→          ["AI Features", "Image Authenticity Detection + Auto-categorization"],
+   209→          ["Target Users", "Citizens, Municipality Officers, Super Admin"],
+   210→          ["Primary Goal", "Digitize civic issue reporting with AI-verified photos"],
+   211→        ],
+   212→        [3200, 6160]
+   213→      ),
+   214→
+   215→      new Paragraph({ children: [new PageBreak()] }),
+   216→
+   217→      // ══════════════════════════════════════════════
+   218→      //  1. EXECUTIVE SUMMARY
+   219→      // ══════════════════════════════════════════════
+   220→      h1("1. Executive Summary"),
+   221→
+   222→      para("Community Issue Tracker is an AI-powered web platform that lets citizens report local infrastructure problems by submitting photos. What makes it unique: every photo is automatically scanned by an AI model to verify it is a real photograph and not an AI-generated or manipulated image — preventing fake complaints and ensuring data integrity for the municipality."),
+   223→      gap(),
+   224→      para("Built using an AI Agent (v0.dev or Bolt.new) to scaffold the UI rapidly, the platform ships a full citizen portal, a municipality operations dashboard, and a super-admin panel — all within 12 hours."),
+   225→
+   226→      divider(),
+   227→
+   228→      // ══════════════════════════════════════════════
+   229→      //  2. PROBLEM STATEMENT
+   230→      // ══════════════════════════════════════════════
+   231→      h1("2. Problem Statement"),
+   232→
+   233→      h2("2.1 Current Pain Points"),
+   234→      bullet("Citizens must physically visit municipal offices to lodge complaints — very few digital options exist"),
+   235→      bullet("Complaints via phone/paper are lost, untracked, and have zero accountability"),
+   236→      bullet("Municipality teams receive duplicate or fake complaints with no way to verify them"),
+   237→      bullet("No transparency — citizens never know if their complaint was acted upon"),
+   238→      bullet("With AI image generation becoming common, fake complaint photos are now a real risk"),
+   239→
+   240→      gap(),
+   241→      h2("2.2 Key Innovation — AI Image Authenticity"),
+   242→      para("As generative AI tools (Midjourney, DALL-E, Stable Diffusion) become accessible, bad actors could generate realistic-looking fake photos of issues to manipulate priority queues or claim false damages. This platform solves this by running every uploaded image through an AI detection pipeline before it enters the system."),
+   243→
+   244→      divider(),
+   245→
+   246→      // ══════════════════════════════════════════════
+   247→      //  3. USER PERSONAS
+   248→      // ══════════════════════════════════════════════
+   249→      h1("3. User Personas"),
+   250→
+   251→      sectionBox("👤", "Persona 1 — Ravi (Public Citizen)", "Primary Reporter"),
+   252→      gap(80),
+   253→      tbl(["Attribute", "Details"], [
+   254→        ["Age / Role", "28 years, Software Engineer, Chennai"],
+   255→        ["Tech Comfort", "High — uses mobile apps daily"],
+   256→        ["Goal", "Report a broken streetlight near his house in 30 seconds"],
+   257→        ["Frustration", "Called municipality helpline 4 times — zero response"],
+   258→        ["Needs", "Quick photo-based reporting with a tracking ID and status updates"],
+   259→        ["Access", "Public citizen — no login required to submit issues"],
+   260→      ], [3000, 6360]),
+   261→
+   262→      gap(160),
+   263→      sectionBox("🏛️", "Persona 2 — Kumar (Municipality Officer)", "Field Operations"),
+   264→      gap(80),
+   265→      tbl(["Attribute", "Details"], [
+   266→        ["Age / Role", "45 years, Ward Officer, Corporation of Chennai"],
+   267→        ["Tech Comfort", "Medium — comfortable with basic dashboards"],
+   268→        ["Goal", "See all complaints in his ward, prioritized and mapped"],
+   269→        ["Frustration", "Receives complaints on paper, WhatsApp, phone — hard to track"],
+   270→        ["Needs", "Clean dashboard, map view, status update, AI-verified photos only"],
+   271→        ["Access", "Admin login — municipality-issued credentials"],
+   272→      ], [3000, 6360]),
+   273→
+   274→      gap(160),
+   275→      sectionBox("⚙️", "Persona 3 — Priya (Super Admin)", "Platform Administrator"),
+   276→      gap(80),
+   277→      tbl(["Attribute", "Details"], [
+   278→        ["Age / Role", "35 years, IT Head, Greater Chennai Corporation"],
+   279→        ["Tech Comfort", "High — manages digital systems"],
+   280→        ["Goal", "Oversee all wards, manage municipality officer accounts, view analytics"],
+   281→        ["Frustration", "No unified view across all 15 wards, each runs independently"],
+   282→        ["Needs", "Super admin panel — user management, analytics, system health, AI logs"],
+   283→        ["Access", "Super admin login — highest privilege level"],
+   284→      ], [3000, 6360]),
+   285→
+   286→      divider(),
+   287→
+   288→      // ══════════════════════════════════════════════
+   289→      //  4. AI AGENT BUILD STRATEGY
+   290→      // ══════════════════════════════════════════════
+   291→      h1("4. AI Agent Build Strategy"),
+   292→
+   293→      para("Since we are using v0.dev or Bolt.new as an AI coding agent, here is exactly how to prompt it to build different parts of the app efficiently within 12 hours."),
+   294→
+   295→      gap(),
+   296→      h2("4.1 What AI Agent Builds (Scaffolded)"),
+   297→      tbl(["Component", "AI Agent Prompt", "Est. Time Saved"], [
+   298→        ["Citizen Report Form", "\"Build a React form with photo upload, issue type dropdown, GPS location field, and submit button using Tailwind CSS\"", "1.5 hrs"],
+   299→        ["Issue Tracking Page", "\"Build a page that takes an issue ID and shows status timeline: Pending → In Progress → Resolved with timestamps\"", "1 hr"],
+   300→        ["Admin Dashboard Layout", "\"Build a dashboard with sidebar nav, stats cards (open/resolved counts), and a data table with status badge filters\"", "2 hrs"],
+   301→        ["Map Component", "\"Build a Google Maps React component with custom markers for different issue types using @react-google-maps/api\"", "1.5 hrs"],
+   302→        ["AI Detection Result Card", "\"Build a card component showing: Real Photo / AI Generated badge, confidence percentage, and detection details\"", "45 min"],
+   303→      ], [2000, 4600, 2760]),
+   304→
+   305→      gap(),
+   306→      h2("4.2 What We Code Manually"),
+   307→      bullet("Firebase Firestore integration and real-time listeners"),
+   308→      bullet("AI image detection API call (Hive Moderation or Sightengine)"),
+   309→      bullet("Image upload to Cloudinary with compression"),
+   310→      bullet("Authentication logic for admin and super admin"),
+   311→      bullet("Business logic: duplicate detection, status update rules"),
+   312→
+   313→      divider(),
+   314→
+   315→      // ══════════════════════════════════════════════
+   316→      //  5. AI IMAGE DETECTION FEATURE
+   317→      // ══════════════════════════════════════════════
+   318→      h1("5. AI Image Detection — Core Feature"),
+   319→
+   320→      sectionBox("🤖", "How AI Image Detection Works", "The centrepiece innovation"),
+   321→      gap(80),
+   322→
+   323→      para("When a citizen uploads a photo, the system does not accept it immediately. Instead, it sends the image to an AI detection API that analyses pixel patterns, metadata, and generative signatures to determine whether the photo is real or AI-generated."),
+   324→
+   325→      gap(),
+   326→      h2("5.1 Detection Flow"),
+   327→      tbl(["Step", "Action", "Technology"], [
+   328→        ["1", "Citizen uploads photo via app", "React + Cloudinary"],
+   329→        ["2", "Image sent to AI Detection API", "Hive Moderation API or Sightengine"],
+   330→        ["3", "API returns: Real / AI-Generated + confidence score", "REST API response (JSON)"],
+   331→        ["4", "If Real (confidence > 80%) → Issue created in Firebase", "Node.js backend"],
+   332→        ["5", "If AI-Generated → Issue REJECTED, citizen shown warning", "Frontend alert component"],
+   333→        ["6", "All detection logs saved for admin audit trail", "Firebase Firestore"],
+   334→      ], [500, 3800, 5060]),
+   335→
+   336→      gap(),
+   337→      h2("5.2 Detection Result States"),
+   338→      tbl(["Result", "Confidence", "Action", "UI Display"], [
+   339→        ["✅ Real Photo", "> 80%", "Issue created and submitted", "Green badge — 'Verified Real Photo'"],
+   340→        ["⚠️ Uncertain", "50–80%", "Issue created but flagged for manual review", "Yellow badge — 'Pending Verification'"],
+   341→        ["❌ AI Generated", "< 50% real", "Issue rejected, not created", "Red badge — 'AI Image Detected — Rejected'"],
+   342→      ], [2000, 1800, 2800, 2760]),
+   343→
+   344→      gap(),
+   345→      h2("5.3 Recommended AI Detection APIs"),
+   346→      tbl(["API", "Accuracy", "Free Tier", "Integration"], [
+   347→        ["Hive Moderation", "~95%", "500 calls/month free", "POST /v1/task/sync/ai_generated_image_detection"],
+   348→        ["Sightengine", "~92%", "2000 calls/month free", "GET with image URL + models=ai-generated"],
+   349→        ["Illuminarty", "~90%", "Limited free", "REST API, returns probability score"],
+   350→        ["Content at Scale", "~88%", "Limited free", "URL-based detection"],
+   351→      ], [2400, 1600, 2200, 3160]),
+   352→
+   353→      gap(),
+   354→      h2("5.4 Sample API Request (Sightengine)"),
+   355→      code("GET https://api.sightengine.com/1.0/check.json"),
+   356→      code("  ?url=https://cloudinary.com/your-uploaded-image.jpg"),
+   357→      code("  &models=ai-generated"),
+   358→      code("  &api_user=YOUR_API_USER"),
+   359→      code("  &api_secret=YOUR_API_SECRET"),
+   360→      gap(40),
+   361→      h2("5.5 Sample API Response"),
+   362→      code("{ \"status\": \"success\","),
+   363→      code("  \"ai_generated\": { \"prob\": 0.94 },"),
+   364→      code("  \"type\": { \"ai_created\": 0.94, \"real\": 0.06 } }"),
+   365→      gap(40),
+   366→      para("prob > 0.8 → AI Generated (REJECT)  |  prob < 0.2 → Real Photo (ACCEPT)  |  Between → Flag for review"),
+   367→
+   368→      divider(),
+   369→
+   370→      // ══════════════════════════════════════════════
+   371→      //  6. FEATURE REQUIREMENTS
+   372→      // ══════════════════════════════════════════════
+   373→      h1("6. Feature Requirements"),
+   374→
+   375→      h2("6.1 Public Citizen Portal"),
+   376→      tbl(["Feature", "Description", "Priority", "Time"], [
+   377→        ["Issue Submission Form", "Photo upload + issue type + GPS location + description", "🔴 Must Have", "2 hrs"],
+   378→        ["AI Image Verification", "Auto-detect if photo is real or AI-generated before submitting", "🔴 Must Have", "2 hrs"],
+   379→        ["Issue Type Selection", "Pothole / Garbage / Broken Light / Water Leak / Other", "🔴 Must Have", "30 min"],
+   380→        ["GPS Auto-Detection", "Browser Geolocation API fills coordinates automatically", "🔴 Must Have", "45 min"],
+   381→        ["Manual Map Pin", "Drag pin on Google Maps if GPS fails", "🟡 Should Have", "1 hr"],
+   382→        ["Issue Tracking Page", "Enter Issue ID → view status + timeline (Pending/In Progress/Resolved)", "🔴 Must Have", "1 hr"],
+   383→        ["Submission Confirmation", "Issue ID shown + shareable tracking link", "🔴 Must Have", "30 min"],
+   384→        ["AI Detection Result UI", "Show badge: Verified Real / AI Detected / Under Review", "🔴 Must Have", "45 min"],
+   385→        ["Anonymous Submission", "No login required for citizens", "🔴 Must Have", "—"],
+   386→        ["Issue History (Device)", "View past issues submitted from same device via localStorage", "🟢 Nice to Have", "30 min"],
+   387→      ], [2600, 3600, 1600, 1560]),
+   388→
+   389→      gap(),
+   390→      h2("6.2 Municipality Admin Dashboard"),
+   391→      tbl(["Feature", "Description", "Priority", "Time"], [
+   392→        ["Secure Login", "Email + password via Firebase Auth", "🔴 Must Have", "30 min"],
+   393→        ["Live Issues Map", "Google Maps with color-coded pins by status", "🔴 Must Have", "2 hrs"],
+   394→        ["Issues Table", "List view with filters: type, status, date, AI verification status", "🔴 Must Have", "1.5 hrs"],
+   395→        ["Issue Detail View", "Photo, AI detection result, location, description, history", "🔴 Must Have", "1 hr"],
+   396→        ["Status Update", "Change: Pending → In Progress → Resolved with notes", "🔴 Must Have", "1 hr"],
+   397→        ["AI Flagged Queue", "Separate tab for 'Under Review' issues needing manual photo check", "🔴 Must Have", "1 hr"],
+   398→        ["Duplicate Detection", "Flag new issues reported within 50m of existing open issue", "🟡 Should Have", "1 hr"],
+   399→        ["Stats Cards", "Count of Open / In Progress / Resolved / AI Rejected today", "🟡 Should Have", "45 min"],
+   400→        ["Ward Filter", "Filter issues by ward/zone", "🟡 Should Have", "30 min"],
+   401→        ["Export CSV", "Download issues list as CSV for reporting", "🟢 Nice to Have", "30 min"],
+   402→      ], [2600, 3600, 1600, 1560]),
+   403→
+   404→      gap(),
+   405→      h2("6.3 Super Admin Panel"),
+   406→      tbl(["Feature", "Description", "Priority", "Time"], [
+   407→        ["Super Admin Login", "Separate credentials, highest privilege", "🔴 Must Have", "20 min"],
+   408→        ["Municipality User Management", "Create / deactivate admin accounts per ward", "🔴 Must Have", "1 hr"],
+   409→        ["All-Ward Overview", "Analytics across all wards — total issues, resolution rates", "🔴 Must Have", "1 hr"],
+   410→        ["AI Detection Logs", "Full log of all AI detection calls: image, result, confidence, time", "🔴 Must Have", "45 min"],
+   411→        ["System Health", "API usage counts (AI calls used/remaining), error logs", "🟡 Should Have", "30 min"],
+   412→        ["AI Rejection Review", "Override rejected AI images if manually verified as real", "🟡 Should Have", "45 min"],
+   413→        ["Performance Analytics", "Average resolution time per ward, top issue types, trends", "🟢 Nice to Have", "1 hr"],
+   414→      ], [2600, 3600, 1600, 1560]),
+   415→
+   416→      divider(),
+   417→
+   418→      // ══════════════════════════════════════════════
+   419→      //  7. USER FLOWS
+   420→      // ══════════════════════════════════════════════
+   421→      h1("7. User Flows"),
+   422→
+   423→      h2("7.1 Citizen — Submit Issue with AI Verification"),
+   424→      tbl(["Step", "Citizen Action", "System Response"], [
+   425→        ["1", "Opens app on phone browser", "Home screen with 'Report an Issue' CTA button"],
+   426→        ["2", "Taps 'Report an Issue'", "Report form opens"],
+   427→        ["3", "Uploads photo from camera/gallery", "Photo previewed, upload to Cloudinary starts"],
+   428→        ["4", "System sends image to AI Detection API", "Loading spinner: 'Verifying your photo...'"],
+   429→        ["5a", "AI result: REAL (>80%)", "Green badge appears: 'Photo Verified ✅' — form unlocks"],
+   430→        ["5b", "AI result: UNCERTAIN (50-80%)", "Yellow badge: 'Photo Under Review ⚠️' — form unlocks, flagged"],
+   431→        ["5c", "AI result: AI GENERATED (<50%)", "Red alert: 'AI-generated image detected. Please upload a real photo.' — form blocked"],
+   432→        ["6", "Selects issue type from dropdown", "Pothole / Garbage / Light / Water / Other"],
+   433→        ["7", "Confirms GPS location on map", "Pin shown at current location, editable"],
+   434→        ["8", "Adds optional description (200 char)", "Text input with character counter"],
+   435→        ["9", "Taps Submit", "Issue saved to Firebase, unique Issue ID generated (e.g. ISS-2024-0042)"],
+   436→        ["10", "Confirmation screen shown", "Issue ID + 'Track your issue' link + estimated response time"],
+   437→      ], [500, 3200, 5660]),
+   438→
+   439→      gap(),
+   440→      h2("7.2 Municipality Officer — Process Issues"),
+   441→      tbl(["Step", "Officer Action", "System Response"], [
+   442→        ["1", "Logs in to admin dashboard", "Dashboard loads with stats cards + map view"],
+   443→        ["2", "Reviews live map", "Colour-coded pins: Red=Pending, Yellow=In Progress, Green=Resolved"],
+   444→        ["3", "Opens 'AI Flagged' queue tab", "List of issues with AI confidence 50–80% awaiting manual review"],
+   445→        ["4", "Clicks a flagged issue", "Detail panel: photo, AI confidence score, location, description"],
+   446→        ["5", "Manually reviews the photo", "Decides: Accept or Reject"],
+   447→        ["6", "Accepts or rejects manually", "Issue status updated accordingly"],
+   448→        ["7", "For valid issues: updates status to In Progress", "Pin color changes to yellow on map"],
+   449→        ["8", "Field team resolves issue", "Officer marks Resolved with optional resolution note"],
+   450→        ["9", "Citizen tracking page auto-updates", "Citizen sees 'Resolved ✅' status with timestamp"],
+   451→      ], [500, 3200, 5660]),
+   452→
+   453→      gap(),
+   454→      h2("7.3 Super Admin — Manage Platform"),
+   455→      tbl(["Step", "Super Admin Action", "System Response"], [
+   456→        ["1", "Logs in with super admin credentials", "Super admin panel loads (different URL: /superadmin)"],
+   457→        ["2", "Views all-ward analytics dashboard", "Charts: issues by ward, by type, resolution rates"],
+   458→        ["3", "Checks AI Detection Logs", "Table: Image, Detection Result, Confidence %, Timestamp, Outcome"],
+   459→        ["4", "Reviews AI overrides", "List of manually overridden rejections for audit"],
+   460→        ["5", "Creates new municipality admin account", "Form: name, email, ward assignment, auto-sends invite email"],
+   461→        ["6", "Deactivates an admin account", "Account disabled, officer can no longer log in"],
+   462→        ["7", "Checks system health", "API quota: X/500 AI calls used this month, error rate %"],
+   463→      ], [500, 3200, 5660]),
+   464→
+   465→      divider(),
+   466→
+   467→      // ══════════════════════════════════════════════
+   468→      //  8. TECHNICAL ARCHITECTURE
+   469→      // ══════════════════════════════════════════════
+   470→      h1("8. Technical Architecture"),
+   471→
+   472→      h2("8.1 Full Tech Stack"),
+   473→      tbl(["Layer", "Technology", "Purpose"], [
+   474→        ["Frontend Framework", "React.js (scaffolded by v0.dev / Bolt.new)", "All UI — citizen portal, admin dashboard, super admin panel"],
+   475→        ["Styling", "Tailwind CSS", "Fast responsive UI with utility classes"],
+   476→        ["Backend", "Node.js + Express.js", "REST API, AI detection orchestration, business logic"],
+   477→        ["Database", "Firebase Firestore", "Real-time NoSQL — issues, users, AI logs"],
+   478→        ["Authentication", "Firebase Auth (Email/Password)", "Admin and super admin login only"],
+   479→        ["Image Storage", "Cloudinary", "Image upload, compression, CDN delivery, URL generation"],
+   480→        ["Maps", "Google Maps JavaScript API (@react-google-maps/api)", "Issue pins, location picker, ward boundaries"],
+   481→        ["AI Detection", "Sightengine API or Hive Moderation API", "Real vs AI-generated image classification"],
+   482→        ["Hosting (Frontend)", "Vercel", "Free tier, GitHub integration, instant deploy"],
+   483→        ["Hosting (Backend)", "Railway.app", "Free tier Node.js server hosting"],
+   484→        ["State Management", "React Context API + useState", "Lightweight — no Redux needed for MVP"],
+   485→      ], [2400, 2800, 4160]),
+   486→
+   487→      gap(),
+   488→      h2("8.2 System Architecture Diagram (Text)"),
+   489→      code("┌─────────────────────────────────────────────────────────────────┐"),
+   490→      code("│                      CITIZEN (Browser)                         │"),
+   491→      code("│  Report Form → Photo Upload → AI Verify → Submit Issue         │"),
+   492→      code("└──────────────────────┬──────────────────────────────────────────┘"),
+   493→      code("                       │ REST API calls"),
+   494→      code("┌──────────────────────▼──────────────────────────────────────────┐"),
+   495→      code("│                    NODE.JS + EXPRESS (Backend)                  │"),
+   496→      code("│  /api/issues (POST/GET)  │  /api/detect (AI)  │  /api/admin    │"),
+   497→      code("└──────┬───────────────────┬────────────────────────────┬─────────┘"),
+   498→      code("       │                   │                            │"),
+   499→      code("┌──────▼──────┐  ┌─────────▼──────────┐   ┌──────────▼───────────┐"),
+   500→      code("│  Firebase   │  │  Sightengine / Hive │   │     Cloudinary       │"),
+   501→      code("│  Firestore  │  │  AI Detection API   │   │   Image Storage      │"),
+   502→      code("└─────────────┘  └────────────────────┘   └──────────────────────┘"),
+   503→
+   504→      gap(),
+   505→      h2("8.3 Data Schema"),
+   506→
+   507→      h3("Issue Object"),
+   508→      code("{ id: 'ISS-2024-0042',"),
+   509→      code("  type: 'pothole' | 'garbage' | 'light' | 'water' | 'other',"),
+   510→      code("  status: 'pending' | 'in_progress' | 'resolved' | 'rejected',"),
+   511→      code("  photo_url: 'https://res.cloudinary.com/...',"),
+   512→      code("  description: 'Large pothole near bus stop, causing accidents',"),
+   513→      code("  location: { lat: 13.0827, lng: 80.2707, address: 'Anna Salai, Chennai' },"),
+   514→      code("  ward: 'Ward-12',"),
+   515→      code("  ai_detection: {"),
+   516→      code("    result: 'real' | 'ai_generated' | 'uncertain',"),
+   517→      code("    confidence: 0.94,"),
+   518→      code("    api_used: 'sightengine',"),
+   519→      code("    checked_at: '2024-06-15T10:30:00Z'"),
+   520→      code("  },"),
+   521→      code("  created_at: '2024-06-15T10:30:00Z',"),
+   522→      code("  updated_at: '2024-06-15T14:00:00Z',"),
+   523→      code("  resolved_at: null,"),
+   524→      code("  assigned_to: null,"),
+   525→      code("  resolution_note: null }"),
+   526→
+   527→      gap(),
+   528→      h3("Admin User Object"),
+   529→      code("{ id: 'ADM-001',"),
+   530→      code("  name: 'Kumar Rajan',"),
+   531→      code("  email: 'kumar@chennaicorp.gov.in',"),
+   532→      code("  role: 'admin' | 'super_admin',"),
+   533→      code("  ward: 'Ward-12',"),
+   534→      code("  is_active: true,"),
+   535→      code("  created_at: '2024-01-01T00:00:00Z',"),
+   536→      code("  last_login: '2024-06-15T09:00:00Z' }"),
+   537→
+   538→      gap(),
+   539→      h2("8.4 API Endpoints"),
+   540→      tbl(["Method", "Endpoint", "Auth", "Description"], [
+   541→        ["POST", "/api/issues", "None (Public)", "Create new issue (includes AI detection result)"],
+   542→        ["GET", "/api/issues", "Admin", "Get all issues with filters (status, type, ward, date)"],
+   543→        ["GET", "/api/issues/:id", "None (Public)", "Get single issue by ID for citizen tracking"],
+   544→        ["PATCH", "/api/issues/:id/status", "Admin", "Update issue status + optional resolution note"],
+   545→        ["POST", "/api/detect", "None", "Run AI detection on image URL, return result + confidence"],
+   546→        ["GET", "/api/stats", "Admin", "Stats: open/resolved/rejected counts, avg resolution time"],
+   547→        ["GET", "/api/admin/ai-logs", "Super Admin", "All AI detection logs with image URLs and results"],
+   548→        ["POST", "/api/admin/users", "Super Admin", "Create new municipality admin account"],
+   549→        ["PATCH", "/api/admin/users/:id", "Super Admin", "Update or deactivate admin account"],
+   550→        ["GET", "/api/admin/analytics", "Super Admin", "Cross-ward analytics, trends, performance metrics"],
+   551→      ], [1000, 3000, 1800, 3560]),
+   552→
+   553→      divider(),
+   554→
+   555→      // ══════════════════════════════════════════════
+   556→      //  9. TEAM ROLES + SPRINT PLAN
+   557→      // ══════════════════════════════════════════════
+   558→      h1("9. Team Roles & Sprint Plan"),
+   559→
+   560→      h2("9.1 Role Assignment"),
+   561→      tbl(["Person", "Role", "Responsibilities"], [
+   562→        ["Person 1", "Frontend — Citizen App", "Report form UI, AI detection badge component, tracking page, mobile responsive"],
+   563→        ["Person 2", "Backend Developer", "Express API, Firebase setup, AI detection API integration, Cloudinary"],
+   564→        ["Person 3", "Frontend — Admin + Super Admin", "Dashboard UI, maps, issue list, status update, super admin panel"],
+   565→        ["Person 4", "Full Stack + Demo Lead", "Google Maps integration, auth flow, UI polish, demo script, presentation"],
+   566→      ], [1600, 2400, 5360]),
+   567→
+   568→      gap(),
+   569→      h2("9.2 12-Hour Sprint Timeline"),
+   570→      tbl(["Time", "Task", "Owner"], [
+   571→        ["00:00–00:30", "Project setup: Git repo, Firebase project, Cloudinary, API keys setup", "All"],
+   572→        ["00:30–01:00", "Prompt AI agent (v0/Bolt) to scaffold: Citizen form, Admin dashboard layout", "P1 + P3"],
+   573→        ["01:00–03:00", "Backend: Express server + Firebase CRUD APIs + Cloudinary upload endpoint", "P2"],
+   574→        ["01:00–03:00", "Frontend: Citizen report form UI + photo upload working", "P1"],
+   575→        ["03:00–05:00", "AI Detection API integrated in backend + frontend badge component", "P2 + P1"],
+   576→        ["03:00–05:00", "Admin dashboard: issue list + status update working", "P3"],
+   577→        ["05:00–07:00", "Google Maps: issue pins on map + location picker for citizen form", "P4"],
+   578→        ["07:00–08:30", "Super admin panel: user management + AI logs view", "P3 + P2"],
+   579→        ["08:30–09:30", "Duplicate detection logic + ward filter + stats cards", "P2 + P3"],
+   580→        ["09:30–10:30", "End-to-end testing: submit → AI detect → dashboard appear → resolve", "All"],
+   581→        ["10:30–11:00", "Deploy: Vercel (frontend) + Railway (backend) + production env vars", "P4"],
+   582→        ["11:00–11:30", "UI polish, loading states, error messages, mobile responsive check", "P1 + P3"],
+   583→        ["11:30–12:00", "Demo rehearsal — full flow 3 times, presentation slides prep", "All"],
+   584→      ], [1800, 4800, 2760]),
+   585→
+   586→      divider(),
+   587→
+   588→      // ══════════════════════════════════════════════
+   589→      //  10. DEMO SCRIPT
+   590→      // ══════════════════════════════════════════════
+   591→      h1("10. Demo Script (For Judges)"),
+   592→
+   593→      para("Follow this exact 5-minute demo sequence. Keep it live and interactive — do not use screenshots."),
+   594→      gap(),
+   595→
+   596→      tbl(["#", "Say This", "Show This"], [
+   597→        ["1", "\"We built a platform where any citizen can report a civic issue in under 30 seconds — with built-in AI fraud prevention\"", "Open Citizen App on phone (screen mirrored)"],
+   598→        ["2", "\"First, I upload a real photo of the issue\"", "Upload an actual photo of a pothole"],
+   599→        ["3", "\"Our AI instantly checks if this is a real photo or an AI-generated fake\"", "Show loading spinner: 'Verifying photo...'"],
+   600→        ["4", "\"Green badge — verified real photo ✅\"", "Show green 'Photo Verified' badge with 94% confidence"],
+   601→        ["5", "\"Now let me try uploading an AI-generated fake image\"", "Upload a DALL-E/Midjourney generated road image"],
+   602→        ["6", "\"The AI catches it immediately — rejected!\"", "Show red 'AI Image Detected' badge — form blocked"],
+   603→        ["7", "\"Back to our real photo — fill in type, location is auto-detected, submit!\"", "Select Pothole, tap Submit"],
+   604→        ["8", "\"Now on the Municipality Officer dashboard...\"", "Switch to Admin Dashboard on laptop"],
+   605→        ["9", "\"The issue appears live on the map with all verified photo details\"", "Show map pin appearing in real-time"],
+   606→        ["10", "\"Officer updates status to In Progress — citizen immediately sees it\"", "Update status, show citizen tracking page refresh"],
+   607→        ["11", "\"Super Admin can see all wards, all AI detection logs, manage officers\"", "Show super admin panel briefly"],
+   608→        ["12", "\"Built using v0.dev AI agent + React + Firebase + Sightengine AI — in 12 hours!\"", "End on architecture slide"],
+   609→      ], [400, 4000, 4960]),
+   610→
+   611→      divider(),
+   612→
+   613→      // ══════════════════════════════════════════════
+   614→      //  11. RISKS
+   615→      // ══════════════════════════════════════════════
+   616→      h1("11. Risks & Mitigations"),
+   617→
+   618→      tbl(["Risk", "Likelihood", "Mitigation"], [
+   619→        ["AI detection API rate limit hit during demo", "Medium", "Cache demo results; keep a static mock response JSON as fallback"],
+   620→        ["Google Maps API quota exceeded", "Medium", "Use free tier key, fallback to Leaflet.js (free, no quota)"],
+   621→        ["Firebase connection issues", "Low", "Test first 30 min; keep local state as visual fallback"],
+   622→        ["v0.dev/Bolt.new generates messy code", "Medium", "Review and clean scaffolded code before integrating backend calls"],
+   623→        ["Cloudinary upload slow on demo WiFi", "Medium", "Pre-upload demo images, compress to <500KB before hackathon"],
+   624→        ["Super admin panel not complete in time", "High", "Cut to read-only view; show AI logs table as proof of concept"],
+   625→        ["GPS not working in demo venue", "Medium", "Pre-set a manual location pin on Chennai as default fallback"],
+   626→      ], [2800, 1600, 4960]),
+   627→
+   628→      divider(),
+   629→
+   630→      // ══════════════════════════════════════════════
+   631→      //  12. FUTURE SCOPE
+   632→      // ══════════════════════════════════════════════
+   633→      h1("12. Future Scope"),
+   634→
+   635→      bullet("📱 Native mobile app (React Native) — better camera + offline support"),
+   636→      bullet("🤖 Issue Auto-Classification — AI reads photo and auto-selects issue type (pothole / garbage / etc.)"),
+   637→      bullet("📲 WhatsApp/SMS Notifications — citizen notified when status changes without opening app"),
+   638→      bullet("🗳️ Community Upvoting — citizens upvote existing issues to boost priority"),
+   639→      bullet("📊 Predictive Analytics — ML model predicts high-issue zones before they are reported"),
+   640→      bullet("🌐 Multi-language — Tamil, Hindi, Telugu support for rural accessibility"),
+   641→      bullet("🔗 Government API integration — connect with Tamil Nadu eDistrict for official complaint numbers"),
+   642→      bullet("🏆 Gamification for Officers — leaderboard by resolution speed per ward"),
+   643→      bullet("🛡️ Advanced AI Deepfake Detection — detect photo manipulation, cropping, color grading artifacts"),
+   644→
+   645→      divider(),
+   646→
+   647→      // ── FOOTER ──
+   648→      new Paragraph({
+   649→        alignment: AlignmentType.CENTER,
+   650→        spacing: { before: 240, after: 0 },
+   651→        children: [new TextRun({
+   652→          text: "Community Issue Tracker PRD v2.0  •  AI-Powered Civic Platform  •  Hackathon Build",
+   653→          size: 17, color: "AAAAAA", italics: true, font: "Arial"
+   654→        })]
+   655→      }),
+   656→
+   657→    ]
+   658→  }]
+   659→});
+   660→
+   661→Packer.toBuffer(doc).then(buf => {
+   662→  fs.writeFileSync("/mnt/user-data/outputs/Community_Issue_Tracker_PRD_v2.docx", buf);
+   663→  console.log("Done!");
+   664→});
