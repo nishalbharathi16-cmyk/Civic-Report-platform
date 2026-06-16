@@ -1,5 +1,6 @@
 // Prisma schema for Community Issue Tracker v2.0
 // AI-powered civic reporting platform with AI image authenticity detection
+// Instagram-style citizen feed: posts / likes / comments
 
 generator client {
   provider = "prisma-client-js"
@@ -10,7 +11,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── Issues reported by citizens ────────────────────────────────────
+// ─── Issues reported by citizens (= posts in the feed) ──────────────
 model Issue {
   id              String   @id @default(cuid())
   issueId         String   @unique // human-readable ID like ISS-2024-0042
@@ -22,6 +23,11 @@ model Issue {
   lng             Float
   address         String?
   ward            String   @default("Ward-12")
+
+  // ── Instagram-style author info ──
+  authorName      String   @default("anonymous_citizen")
+  authorAvatar    String   @default("🦊") // emoji avatar
+
   aiResult        String   // real | ai_generated | uncertain
   aiConfidence    Float    // 0.0 - 1.0
   aiApiUsed       String   @default("vlm-zai")
@@ -34,10 +40,13 @@ model Issue {
 
   // status timeline events
   timeline        IssueTimeline[]
+  likes           IssueLike[]
+  comments        IssueComment[]
 
   @@index([status])
   @@index([ward])
   @@index([type])
+  @@index([createdAt])
 }
 
 // ─── Status history for each issue ──────────────────────────────────
@@ -49,6 +58,31 @@ model IssueTimeline {
   toStatus    String
   note        String?
   actor       String   @default("system") // system | admin | super_admin
+  createdAt   DateTime @default(now())
+
+  @@index([issueId])
+}
+
+// ─── Likes on issues (one per device) ───────────────────────────────
+model IssueLike {
+  id          String   @id @default(cuid())
+  issueId     String
+  issue       Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  deviceId    String   // anonymous device id from localStorage
+  createdAt   DateTime @default(now())
+
+  @@unique([issueId, deviceId])
+  @@index([issueId])
+}
+
+// ─── Comments on issues ─────────────────────────────────────────────
+model IssueComment {
+  id          String   @id @default(cuid())
+  issueId     String
+  issue       Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  authorName  String   @default("anonymous_citizen")
+  authorAvatar String  @default("🦊")
+  text        String
   createdAt   DateTime @default(now())
 
   @@index([issueId])

@@ -121,3 +121,14 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Hide scrollbar for stories bar but keep functional */
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

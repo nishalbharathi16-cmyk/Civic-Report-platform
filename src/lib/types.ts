@@ -16,6 +16,8 @@ export interface Issue {
   lng: number
   address: string | null
   ward: string
+  authorName: string
+  authorAvatar: string
   aiResult: AIResult
   aiConfidence: number
   aiApiUsed: string
@@ -26,6 +28,27 @@ export interface Issue {
   updatedAt: string
   resolvedAt: string | null
   timeline?: IssueTimeline[]
+  likes?: IssueLike[]
+  comments?: IssueComment[]
+  likedByMe?: boolean
+  likesCount?: number
+  commentsCount?: number
+}
+
+export interface IssueLike {
+  id: string
+  issueId: string
+  deviceId: string
+  createdAt: string
+}
+
+export interface IssueComment {
+  id: string
+  issueId: string
+  authorName: string
+  authorAvatar: string
+  text: string
+  createdAt: string
 }
 
 export interface IssueTimeline {
@@ -113,4 +136,28 @@ export function formatDate(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+// ─── Avatar emoji pool for new citizens ──────────────────────────────
+export const AVATAR_POOL = [
+  '🦊', '🐼', '🦉', '🐙', '🦄', '🐯', '🦝', '🐨',
+  '🦋', '🐢', '🦜', '🐝', '🦓', '🐰', '🐱', '🦁',
+  '🐸', '🦅', '🐺', '🦚',
+]
+
+export const AVATAR_COLORS = [
+  'bg-rose-100 text-rose-700',
+  'bg-amber-100 text-amber-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-sky-100 text-sky-700',
+  'bg-violet-100 text-violet-700',
+  'bg-fuchsia-100 text-fuchsia-700',
+  'bg-orange-100 text-orange-700',
+  'bg-teal-100 text-teal-700',
+]
+
+export function getAvatarColor(seed: string): string {
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]
 }

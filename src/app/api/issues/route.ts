@@ -7,7 +7,6 @@ export const runtime = 'nodejs'
 async function generateIssueId(): Promise<string> {
   const year = new Date().getFullYear()
   const prefix = `ISS-${year}-`
-  // Count existing issues this year to pick the next sequence
   const count = await db.issue.count({
     where: { issueId: { startsWith: prefix } },
   })
@@ -19,7 +18,11 @@ async function generateIssueId(): Promise<string> {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { type, photoUrl, description, lat, lng, address, ward, aiResult, aiConfidence, aiApiUsed } = body || {}
+    const {
+      type, photoUrl, description, lat, lng, address, ward,
+      aiResult, aiConfidence, aiApiUsed,
+      authorName, authorAvatar,
+    } = body || {}
 
     if (!type || !photoUrl || lat == null || lng == null) {
       return NextResponse.json(
@@ -28,7 +31,6 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Reject AI-generated images outright at the API level too
     if (aiResult === 'ai_generated') {
       return NextResponse.json(
         { error: 'AI-generated image detected. Issue rejected.', aiResult, aiConfidence },
@@ -37,36 +39,37 @@ export async function POST(req: NextRequest) {
     }
 
     const issueId = await generateIssueId()
-    const status = aiResult === 'uncertain' ? 'pending' : 'pending'
+    const safeAuthorName = (authorName || 'anonymous_citizen').slice(0, 40)
+    const safeAuthorAvatar = (authorAvatar || '🦊').slice(0, 8)
 
     const issue = await db.issue.create({
       data: {
         issueId,
         type,
-        status,
+        status: 'pending',
         photoUrl,
         description: description?.slice(0, 500) ?? null,
         lat: Number(lat),
         lng: Number(lng),
         address: address?.slice(0, 200) ?? null,
         ward: ward || 'Ward-12',
+        authorName: safeAuthorName,
+        authorAvatar: safeAuthorAvatar,
         aiResult,
         aiConfidence: Number(aiConfidence) || 0,
         aiApiUsed: aiApiUsed || 'vlm-zai',
       },
     })
 
-    // initial timeline entry
     await db.issueTimeline.create({
       data: {
         issueId: issue.id,
         toStatus: 'pending',
-        note: `Issue reported via citizen portal. AI detection: ${aiResult} (${Math.round((Number(aiConfidence) || 0) * 100)}% confidence)`,
+        note: `Issue reported via citizen feed. AI detection: ${aiResult} (${Math.round((Number(aiConfidence) || 0) * 100)}% confidence)`,
         actor: 'system',
       },
     })
 
-    // Link the AI detection log (best effort)
     try {
       const latestLog = await db.aIDetectionLog.findFirst({
         orderBy: { createdAt: 'desc' },
@@ -89,7 +92,7 @@ export async function POST(req: NextRequest) {
 }
 
 // GET /api/issues — list issues (with optional filters)
-// Query params: status, type, ward, aiResult, limit, search
+// Query params: status, type, ward, aiResult, limit, search, deviceId (for likedByMe)
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
@@ -98,6 +101,8 @@ export async function GET(req: NextRequest) {
     const ward = searchParams.get('ward') || undefined
     const aiResult = searchParams.get('aiResult') || undefined
     const search = searchParams.get('search') || undefined
+    const authorName = searchParams.get('authorName') || undefined
+    const deviceId = searchParams.get('deviceId') || undefined
     const limit = Math.min(Number(searchParams.get('limit') || 100), 500)
 
     const where: Record<string, unknown> = {}
@@ -105,11 +110,13 @@ export async function GET(req: NextRequest) {
     if (type) where.type = type
     if (ward) where.ward = ward
     if (aiResult) where.aiResult = aiResult
+    if (authorName) where.authorName = authorName
     if (search) {
       where.OR = [
         { issueId: { contains: search } },
         { description: { contains: search } },
         { address: { contains: search } },
+        { authorName: { contains: search } },
       ]
     }
 
@@ -117,10 +124,31 @@ export async function GET(req: NextRequest) {
       where,
       orderBy: { createdAt: 'desc' },
       take: limit,
-      include: { timeline: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        timeline: { orderBy: { createdAt: 'asc' } },
+        comments: { orderBy: { createdAt: 'asc' }, take: 3 },
+        likes: deviceId ? { where: { deviceId } } : false,
+      },
     })
 
-    return NextResponse.json({ success: true, count: issues.length, issues })
+    // Tack on counts + likedByMe flag
+    const enriched = await Promise.all(
+      issues.map(async (i) => {
+        const [likesCount, commentsCount] = await Promise.all([
+          db.issueLike.count({ where: { issueId: i.id } }),
+          db.issueComment.count({ where: { issueId: i.id } }),
+        ])
+        return {
+          ...i,
+          likesCount,
+          commentsCount,
+          likedByMe: deviceId ? (i.likes?.some((l) => l.deviceId === deviceId) ?? false) : false,
+          likes: undefined, // don't leak all likes
+        }
+      })
+    )
+
+    return NextResponse.json({ success: true, count: enriched.length, issues: enriched })
   } catch (err) {
     console.error('List issues error:', err)
     return NextResponse.json({ error: 'Failed to fetch issues' }, { status: 500 })
